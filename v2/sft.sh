@@ -1,1 +1,25 @@
-
+torchrun --nproc_per_node=8 -m swift.cli.sft \
+    --model {your model path}\
+    --model_type {your model type} \
+    --train_type full \
+    --target_modules all-linear \
+    --dataset {your dataset path} \
+    --torch_dtype bfloat16 \
+    --num_train_epochs 3 \
+    --streaming false \
+    --per_device_train_batch_size 16\
+    --learning_rate 1e-5 \
+    --gradient_accumulation_steps 8 \
+    --packing false \
+    --save_steps 5 \
+    --logging_steps 1 \
+    --max_length 12024 \
+    --warmup_ratio 0.05 \
+    --dataloader_num_workers 8 \
+    --dataset_num_proc 8 \
+    --save_total_limit 2 \
+    --save_only_model true \
+    --output_dir{your output path}\
+    --deepspeed zero3 \
+    --use_liger_kernel true \
+    --attn_impl flash_attn 
