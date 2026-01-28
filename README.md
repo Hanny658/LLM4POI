@@ -15,7 +15,7 @@ This repository includes the implementation of the paper "[Large Language Models
 
 ### Install
 1. Clone this repository to your local machine.
-2. Install the environment:
+2. Install the environment or follow the instruction from [ms-swift](https://github.com/modelscope/ms-swift):
 ```bash
 cd v2
 conda env create -f environment.yml
