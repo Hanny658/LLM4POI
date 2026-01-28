@@ -20,7 +20,7 @@ This repository includes the implementation of the paper "[Large Language Models
 cd v2
 conda env create -f environment.yml
 ```
-
+> **Note:** Flash attention install can be tricky.
 ### Dataset
 Download the datasets raw data from [datasets](https://www.dropbox.com/scl/fi/teo5pn8t296joue5c8pim/datasets.zip?rlkey=xvcgtdd9vlycep3nw3k17lfae&st=qd21069y&dl=0).
 * Unzip datasets.zip to ./datasets
