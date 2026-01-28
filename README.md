@@ -36,7 +36,7 @@ cd ../preprocessing
 python run.py -f best_conf/{dataset_name}.yml
 cd ../v2
 python convert_prompt_llm4poi.py \
-    --dataset NYC \
+    --dataset {dataset name} \
     --train_csv {your train csv path} \
     --test_csv {your test csv path} \
     --out_dir {your output path} \
