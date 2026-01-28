@@ -8,7 +8,7 @@ This repository includes the implementation of the paper "[Large Language Models
 ---
 
 <details open>
-<summary><h2>🌟 v2: swift based training</h2></summary>
+<summary>🌟 v2: swift based training</h2></summary>
 <br>
 
 > **Note:** This is the latest version of the framework.
