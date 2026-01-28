@@ -60,7 +60,7 @@ bash eval.sh
 ---
 
 <details>
-<summary><h2>📜 v1: LLM-POI (SIGIR 2024)</h2></summary>
+<summary><h2>📜 v1: Legacy</h2></summary>
 <br>
 
 > **Note:** Original implementation for the SIGIR 2024 paper.
