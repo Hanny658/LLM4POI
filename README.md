@@ -30,6 +30,7 @@ Download the datasets raw data from [datasets](https://www.dropbox.com/scl/fi/te
 * run ```python preprocesssing/generate_ca_raw.py --dataset_name {dataset_name}```
 
 ### Preprocess
+We observe that you can achieve good performance simply by using user history alone, without trajectory similarity.
 ```bash
 cd ../preprocessing
 python run.py -f best_conf/{dataset_name}.yml
