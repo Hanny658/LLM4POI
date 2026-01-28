@@ -35,7 +35,7 @@ We observe that you can achieve good performance simply by using user history al
 cd ../preprocessing
 python run.py -f best_conf/{dataset_name}.yml
 cd ../v2
-python convert_prompt_llm4poi_repro.py \
+python convert_prompt_llm4poi.py \
     --dataset NYC \
     --train_csv {your train csv path} \
     --test_csv {your test csv path} \
