@@ -4,7 +4,7 @@
 
 This repository includes the implementation of the paper "[Large Language Models for Next Point-of-Interest Recommendation](https://arxiv.org/pdf/2404.17591)".
 
-**Please select the version you wish to use:**
+**Please select the version you wish to use (we strongly recommend you try the v2 implementation):**
 ---
 
 <details open>
