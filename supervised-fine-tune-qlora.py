@@ -28,7 +28,6 @@ import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer, DataCollatorForLanguageModeling, BitsAndBytesConfig
 from llama_attn_replace_sft import replace_llama_attn
-from gptneox_attn_replace import replace_gpt_neox_attn
 from peft import LoraConfig, get_peft_model
 from torch.distributed import barrier
 
@@ -237,6 +236,7 @@ def train():
 
     # NOTE: May expand supported model types in the future
     if model_args.model_type == "gpt-neox":
+        from gptneox_attn_replace import replace_gpt_neox_attn
         replace_gpt_neox_attn(training_args.use_flash_attn, training_args.use_full_attn)
     else:
         replace_llama_attn(training_args.use_flash_attn, training_args.use_full_attn)

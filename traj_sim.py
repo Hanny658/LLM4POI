@@ -18,7 +18,6 @@ import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer, DataCollatorForLanguageModeling, BitsAndBytesConfig
 from llama_attn_replace_sft import replace_llama_attn
-from gptneox_attn_replace import replace_gpt_neox_attn
 from peft import LoraConfig, get_peft_model
 from torch.distributed import barrier
 import torch.nn.functional as F
@@ -77,13 +76,13 @@ class TrainingArguments(transformers.TrainingArguments):
 def parse_config():
     parser = argparse.ArgumentParser(description='arg parser')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size during inference')
-    parser.add_argument('--base_model', type=str, default="/data1/pretrained-models/llama-7b-hf")
+    parser.add_argument('--base_model', type=str, default="", help='base model path')
     parser.add_argument('--cache_dir', type=str, default="./cache")
     parser.add_argument('--seq_len', type=int, default=32768, help='context length during evaluation')
     parser.add_argument('--context_size', type=int, default=32768, help='context size during fine-tuning')
     parser.add_argument('--peft_model', type=str, default=None, help='')
     parser.add_argument('--flash_attn', type=bool, default=True, help='')
-    parser.add_argument('--data_path', type=str, default="./test.bin", help='')
+    parser.add_argument('--data_path', type=str, default="", help='directory containing train/test_kq_pairs.json')
     parser.add_argument('--output_dir', type=str, default="/g/data/hn98/peibo/next-poi/outputmodels/finetune-31/",
                         help='')
     parser.add_argument('--dataset_name', type=str, default="nyc",
@@ -172,7 +171,9 @@ def main(args):
     random.seed(seed)
     np.random.seed(seed)
 
-    model_path = '/g/data/hn98/models/llama2/llama-2-7b-longlora-32k-ft/'
+    if not args.base_model:
+        raise ValueError("--base_model is required.")
+    model_path = args.base_model
     output_dir = args.output_dir
     print("data path", args.data_path)
     print("base model", model_path)
@@ -253,7 +254,10 @@ def main(args):
     model = get_peft_model(model, config)
     model.eval()
 
-    data_path = f'datasets/processed/{args.dataset_name}/'
+    if args.data_path:
+        data_path = args.data_path.rstrip("/") + "/"
+    else:
+        data_path = f'datasets/processed/{args.dataset_name}/'
 
     def compute_fea(train=True):
         key_query_traj = {}

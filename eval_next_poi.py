@@ -43,11 +43,11 @@ def parse_config():
     parser.add_argument('--peft_model', type=str, default=None, help='')
     parser.add_argument('--flash_attn', type=bool, default=True, help='')
     parser.add_argument('--model_path', type=str, default='', help='your model path')
-    parser.add_argument('--data_path', type=str, default="./test.bin", help='')
+    parser.add_argument('--data_path', type=str, default="", help='directory containing test file')
     parser.add_argument('--output_dir', type=str, default="/g/data/hn98/peibo/next-poi/outputmodels/finetune-36/", help='')
     parser.add_argument('--dataset_name', type=str, default="nyc",
                         help='')
-    parser.add_argument('--test_file', type=str, default="test_qa_pairs_kqt_100.txt",
+    parser.add_argument('--test_file', type=str, default="test_qa_pairs_kqt.txt",
                         help='')
     args = parser.parse_args()
     return args
@@ -281,7 +281,10 @@ def main(args):
         # Compare and return accuracy (1 if they match, 0 otherwise)
         return int(predicted_poi == actual_poi)
 
-    data_path = f'/g/data/hn98/peibo/next-poi/dataset/processed/{args.dataset_name}/'
+    if args.data_path:
+        data_path = args.data_path.rstrip("/") + "/"
+    else:
+        data_path = f'datasets/processed/{args.dataset_name}/'
     with open(data_path + f"{args.test_file}", "r") as file:
         lines = file.readlines()
     correct_predictions_1 = 0
@@ -345,4 +348,3 @@ def main(args):
 if __name__ == "__main__":
     args = parse_config()
     main(args)
-

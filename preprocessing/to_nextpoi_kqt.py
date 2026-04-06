@@ -29,22 +29,29 @@ def generate_qa_pairs(main_data, kqt=None, historical_data=None, args=None):
             # Get the start time of the current trajectory
             start_time_of_current_traj = user_trajectory_data['UTCTimeOffsetEpoch'].min()
 
-            num_traj = user_trajectory_data.shape[-1]
-            if 'traj_id' in kqt.keys():
-                top200 = kqt['traj_id']
+            num_traj = user_trajectory_data.shape[0]
+            top200 = []
+            if kqt is not None:
+                top200 = kqt.get(str(traj_id), kqt.get(traj_id, []))
+            if top200:
+                top200 = [str(item) for item in top200]
                 # Fetch historical data before the start of the current trajectory
                 if historical_data is not None:
-                    user_historical_data = historical_data[(str(historical_data['pseudo_session_trajectory_id']) in top200)].tail(200 - num_traj)
+                    user_historical_data = historical_data[
+                        historical_data['pseudo_session_trajectory_id'].astype(str).isin(top200)
+                    ].tail(max(0, 200 - num_traj))
                 else:
-                    user_historical_data = main_data[(str(main_data['pseudo_session_trajectory_id']) in top200)].tail(200 - num_traj)
+                    user_historical_data = main_data[
+                        main_data['pseudo_session_trajectory_id'].astype(str).isin(top200)
+                    ].tail(max(0, 200 - num_traj))
             else:
                 if historical_data is not None:
                     user_historical_data = historical_data[(historical_data['UserId'] == user) & (
-                            historical_data['UTCTimeOffsetEpoch'] < start_time_of_current_traj)].tail(600 - num_traj)
+                            historical_data['UTCTimeOffsetEpoch'] < start_time_of_current_traj)].tail(max(0, 600 - num_traj))
                 else:
                     user_historical_data = user_data[
                         (user_data['UTCTimeOffsetEpoch'] < start_time_of_current_traj)].tail(
-                        600 - num_traj)
+                        max(0, 600 - num_traj))
             user_trajectory_data.reset_index(drop=True, inplace=True)
             # Create the question based on the current trajectory (excluding the last entry) and historical data
             question_parts = [f"<question>: The following data is a trajectory of user {user}:"]
@@ -67,7 +74,7 @@ def generate_qa_pairs(main_data, kqt=None, historical_data=None, args=None):
 
             # Create the final question string
             question = " ".join(question_parts)
-            value = {'NYC': 4981, 'TKY': 7833, 'CA': 9690}[args.dataset_name]
+            value = {'nyc': 4981, 'tky': 7833, 'ca': 9690}[args.dataset_name]
             question += f" Given the data, At {user_trajectory_data.iloc[-1]['UTCTimeOffset']}, Which POI id will user {user} visit? Note that POI id is an integer in the range from 0 to {value}."
 
             # Form the answer based on the last entry of the current trajectory
@@ -128,4 +135,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
