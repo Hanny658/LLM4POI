@@ -1,26 +1,52 @@
 #!/bin/bash
-#SBATCH --job-name=llm4poi_trainL4P
+#SBATCH --partition=MGPU-TC2
+#SBATCH --qos=normal
+#SBATCH --gres=gpu:1
+#
+### Specify Memory allocate to this job ###
+#SBATCH --mem=48G
+#
+### Specify number of core (CPU) to allocate to per task ###
+#SBATCH --cpus-per-task=1
+#
+### Specify number of node to compute ###
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=256G
-#SBATCH --gres=gpu:8
-#SBATCH --time=24:00:00
-#SBATCH --output=slurm_%x_%j.out
-#SBATCH --error=slurm_%x_%j.err
+#
+### Optional: Specify node to execute the job ###
+### Remove 1st # at next line for the option to take effect ###
+#SBATCH --nodelist=TC2N07
+#
+### Specify Time Limit, format: <min> or <min>:<sec> or <hr>:<min>:<sec> or <days>-<hr>:<min>:<sec> or <days>-<hr> ###
+#SBATCH --time=06:00:00
+#
+#SBATCH --job-name=llm4poi_train
+#SBATCH --output=%x-%j.out
+#SBATCH --error=%x-%j.err
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+DATASETS=(${DATASETS:-nyc tky ca})
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -z "${DATASET:-}" ]]; then
+  if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#DATASETS[@]} )); then
+    echo "ERROR: SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID is outside DATASETS=(${DATASETS[*]})"
+    exit 1
+  fi
+  DATASET="${DATASETS[$SLURM_ARRAY_TASK_ID]}"
+fi
 DATASET="${DATASET:-nyc}"     # nyc | tky | ca
 ENV_NAME="${ENV_NAME:-llm4poi}"
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-$PROJECT_ROOT/models/llama-2-7b-longlora-32k-ft}"
 TRAIN_DATA="${TRAIN_DATA:-$PROJECT_ROOT/datasets/$DATASET/preprocessed/train_qa_pairs_kqt.json}"
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_ROOT/outputs/llm4poi_${DATASET}_$(date +%Y%m%d_%H%M%S)}"
-GPUS_PER_NODE="${GPUS_PER_NODE:-${SLURM_GPUS_ON_NODE:-8}}"
+GPUS_PER_NODE="${GPUS_PER_NODE:-${SLURM_GPUS_ON_NODE:-1}}"
 GPUS_PER_NODE="${GPUS_PER_NODE##*:}"
 if ! [[ "$GPUS_PER_NODE" =~ ^[0-9]+$ ]]; then
-  GPUS_PER_NODE=8
+  GPUS_PER_NODE=1
+fi
+if (( GPUS_PER_NODE > 1 )); then
+  echo "ERROR: this script is constrained to at most 1 GPU, got GPUS_PER_NODE=$GPUS_PER_NODE"
+  exit 1
 fi
 
 if [[ "$DATASET" != "nyc" && "$DATASET" != "tky" && "$DATASET" != "ca" ]]; then

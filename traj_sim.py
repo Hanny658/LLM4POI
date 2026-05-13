@@ -163,6 +163,8 @@ def compute_features(hidden, attention):
 
 
 def main(args):
+    if not torch.cuda.is_available():
+        raise RuntimeError("traj_sim.py requires at least one CUDA GPU.")
     device = "cuda:0"
     seed = 2
     torch.cuda.set_device(device)
@@ -275,7 +277,7 @@ def main(args):
                 key = model(**key)
                 key = compute_features(key.hidden_states[-1], key.attentions[-1]).cpu().detach()
                 torch.cuda.empty_cache()
-                query = tokenizer(e['query'], return_tensors="pt").to('cuda:1')
+                query = tokenizer(e['query'], return_tensors="pt").to(device)
                 query = model(**query)
                 query = compute_features(query.hidden_states[-1], query.attentions[-1]).cpu().detach()
                 torch.cuda.empty_cache()

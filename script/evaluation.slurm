@@ -1,17 +1,39 @@
 #!/bin/bash
-#SBATCH --job-name=llm4poi_eval
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=96G
+#SBATCH --partition=MGPU-TC2
+#SBATCH --qos=normal
 #SBATCH --gres=gpu:1
-#SBATCH --time=08:00:00
-#SBATCH --output=slurm_%x_%j.out
-#SBATCH --error=slurm_%x_%j.err
+#
+### Specify Memory allocate to this job ###
+#SBATCH --mem=48G
+#
+### Specify number of core (CPU) to allocate to per task ###
+#SBATCH --cpus-per-task=1
+#
+### Specify number of node to compute ###
+#SBATCH --nodes=1
+#
+### Optional: Specify node to execute the job ###
+### Remove 1st # at next line for the option to take effect ###
+#SBATCH --nodelist=TC2N07
+#
+### Specify Time Limit, format: <min> or <min>:<sec> or <hr>:<min>:<sec> or <days>-<hr>:<min>:<sec> or <days>-<hr> ###
+#SBATCH --time=06:00:00
+#
+#SBATCH --job-name=llm4poi_eval
+#SBATCH --output=%x-%j.out
+#SBATCH --error=%x-%j.err
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+DATASETS=(${DATASETS:-nyc tky ca})
+if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -z "${DATASET:-}" ]]; then
+  if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#DATASETS[@]} )); then
+    echo "ERROR: SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID is outside DATASETS=(${DATASETS[*]})"
+    exit 1
+  fi
+  DATASET="${DATASETS[$SLURM_ARRAY_TASK_ID]}"
+fi
 DATASET="${DATASET:-nyc}"    # nyc | tky | ca
 ENV_NAME="${ENV_NAME:-llm4poi}"
 BASE_MODEL_DIR="${BASE_MODEL_DIR:-$PROJECT_ROOT/models/llama-2-7b-longlora-32k-ft}"
