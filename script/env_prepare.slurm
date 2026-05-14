@@ -156,12 +156,30 @@ fi
 
 if [[ ! -f "$BASE_MODEL_DIR/config.json" ]]; then
   echo "[env_prepare] Downloading base model: $BASE_MODEL_ID"
-  if [[ -n "${HF_TOKEN:-}" ]]; then
-    huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
-  fi
-  huggingface-cli download "$BASE_MODEL_ID" \
-    --local-dir "$BASE_MODEL_DIR" \
-    --local-dir-use-symlinks False
+  python - "$BASE_MODEL_ID" "$BASE_MODEL_DIR" <<'PY'
+import inspect
+import os
+import sys
+from huggingface_hub import snapshot_download
+
+repo_id = sys.argv[1]
+local_dir = sys.argv[2]
+token = os.environ.get("HF_TOKEN")
+
+kwargs = {
+    "repo_id": repo_id,
+    "local_dir": local_dir,
+    "local_dir_use_symlinks": False,
+}
+params = inspect.signature(snapshot_download).parameters
+if token:
+    if "token" in params:
+        kwargs["token"] = token
+    elif "use_auth_token" in params:
+        kwargs["use_auth_token"] = token
+
+snapshot_download(**kwargs)
+PY
 fi
 
 # Optional dataset bootstrap from the official ZIP in README.
