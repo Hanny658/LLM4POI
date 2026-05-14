@@ -13,19 +13,30 @@
 #SBATCH --nodes=1
 #
 ### Optional: Specify node to execute the job ###
-### Remove 1st # at next line for the option to take effect ###
 #SBATCH --nodelist=TC2N07
 #
 ### Specify Time Limit, format: <min> or <min>:<sec> or <hr>:<min>:<sec> or <days>-<hr>:<min>:<sec> or <days>-<hr> ###
 #SBATCH --time=06:00:00
 #
 #SBATCH --job-name=llm4poi_env_prep
-#SBATCH --output=%x-%j.out
-#SBATCH --error=%x-%j.err
+#SBATCH --output=log/%x-%j.out
+#SBATCH --error=log/%x-%j.err
 
 set -euo pipefail
+TMP_ENV_YML=""
+cleanup() {
+  if [[ -n "$TMP_ENV_YML" ]]; then
+    rm -f "$TMP_ENV_YML"
+  fi
+}
+trap cleanup EXIT
 
 PROJECT_ROOT="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+CONDA_MODULE="${CONDA_MODULE:-anaconda/25.5.1}"
+CUDA_MODULE="${CUDA_MODULE:-cuda/12.8.0}"
+FLASH_ATTN_VERSION="${FLASH_ATTN_VERSION:-2.3.2}"
+INSTALL_FLASH_ATTN="${INSTALL_FLASH_ATTN:-1}"
+RECREATE_ENV="${RECREATE_ENV:-0}"
 DATASETS=(${DATASETS:-nyc tky ca})
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -z "${DATASET:-}" ]]; then
   if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#DATASETS[@]} )); then
@@ -56,12 +67,38 @@ require_cmd() {
   fi
 }
 
+load_hpc_modules() {
+  if ! command -v module >/dev/null 2>&1; then
+    if [[ -f /etc/profile.d/modules.sh ]]; then
+      # shellcheck disable=SC1091
+      source /etc/profile.d/modules.sh
+    elif [[ -f /usr/share/Modules/init/bash ]]; then
+      # shellcheck disable=SC1091
+      source /usr/share/Modules/init/bash
+    fi
+  fi
+  if ! command -v module >/dev/null 2>&1; then
+    echo "ERROR: environment modules are not available in this Slurm shell."
+    exit 1
+  fi
+  module load "$CONDA_MODULE"
+  module load "$CUDA_MODULE"
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found after loading module $CONDA_MODULE"
+    exit 1
+  fi
+}
+
 echo "[env_prepare] PROJECT_ROOT=$PROJECT_ROOT"
 echo "[env_prepare] DATASET=$DATASET"
+echo "[env_prepare] CONDA_MODULE=$CONDA_MODULE"
+echo "[env_prepare] CUDA_MODULE=$CUDA_MODULE"
+echo "[env_prepare] FLASH_ATTN_VERSION=$FLASH_ATTN_VERSION"
 
 cd "$PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/outputs" "$PROJECT_ROOT/models" "$RAW_DIR"
 
+load_hpc_modules
 require_cmd python
 require_cmd conda
 require_cmd unzip
@@ -69,21 +106,51 @@ require_cmd curl
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
+if [[ "$RECREATE_ENV" == "1" ]] && conda env list | awk 'NR>2 {print $1}' | grep -Fxq "$ENV_NAME"; then
+  echo "[env_prepare] Removing existing conda env because RECREATE_ENV=1: $ENV_NAME"
+  conda env remove -n "$ENV_NAME" -y
+fi
+
 if ! conda env list | awk 'NR>2 {print $1}' | grep -Fxq "$ENV_NAME"; then
   echo "[env_prepare] Creating conda env: $ENV_NAME"
-  TMP_ENV_YML="$(mktemp)"
-  grep -v '^prefix:' "$PROJECT_ROOT/environment.yml" > "$TMP_ENV_YML"
+  TMP_ENV_YML="${TMPDIR:-/tmp}/llm4poi_env_${SLURM_JOB_ID:-$$}.yml"
+  # Install flash-attn after the env exists. Its setup.py imports packaging
+  # during metadata generation, so putting it inside the pip section can fail
+  # before packaging is installed.
+  grep -v '^prefix:' "$PROJECT_ROOT/environment.yml" \
+    | grep -v -E '^[[:space:]]*-[[:space:]]*flash-attn(==.*)?[[:space:]]*$' \
+    | sed -E 's/^([[:space:]]*-[[:space:]]*)transformers==4\.34\.0\.dev0[[:space:]]*$/\1transformers==4.34.0/' \
+    > "$TMP_ENV_YML"
   conda env create -n "$ENV_NAME" -f "$TMP_ENV_YML"
   rm -f "$TMP_ENV_YML"
+  TMP_ENV_YML=""
 fi
 conda activate "$ENV_NAME"
 
+if ! python -c "import torch, transformers, peft, pandas" >/dev/null 2>&1; then
+  echo "ERROR: conda env '$ENV_NAME' exists but appears incomplete."
+  echo "The previous failed flash-attn install may have interrupted pip dependency installation."
+  echo "Rerun with RECREATE_ENV=1, or remove it manually with: conda env remove -n $ENV_NAME"
+  exit 1
+fi
+
+python -m pip install --upgrade packaging wheel ninja
+if [[ "$INSTALL_FLASH_ATTN" == "1" ]]; then
+  export MAX_JOBS="${MAX_JOBS:-${SLURM_CPUS_PER_TASK:-1}}"
+  if ! python -c "import flash_attn" >/dev/null 2>&1; then
+    echo "[env_prepare] Installing flash-attn==$FLASH_ATTN_VERSION with MAX_JOBS=$MAX_JOBS"
+    python -m pip install "flash-attn==$FLASH_ATTN_VERSION" --no-build-isolation
+  fi
+else
+  echo "[env_prepare] Skipping flash-attn install because INSTALL_FLASH_ATTN=$INSTALL_FLASH_ATTN"
+fi
+
 if ! python -c "import huggingface_hub" >/dev/null 2>&1; then
-  pip install "huggingface_hub[cli]"
+  python -m pip install "huggingface_hub[cli]"
 fi
 if [[ "$DATASET" == "ca" ]]; then
   if ! python -c "import shapely" >/dev/null 2>&1; then
-    pip install shapely
+    python -m pip install shapely
   fi
 fi
 
@@ -162,7 +229,16 @@ python "$PROJECT_ROOT/traj_sim.py" \
 
 # Compatibility path for scripts/readme using datasets/processed/<dataset>/...
 mkdir -p "$PROJECT_ROOT/datasets/processed"
-ln -sfn "../$DATASET/preprocessed" "$PROJECT_ROOT/datasets/processed/$DATASET"
+PROCESSED_COMPAT_PATH="$PROJECT_ROOT/datasets/processed/$DATASET"
+if [[ -L "$PROCESSED_COMPAT_PATH" ]]; then
+  rm -f "$PROCESSED_COMPAT_PATH"
+fi
+if [[ ! -e "$PROCESSED_COMPAT_PATH" ]]; then
+  ln -s "../$DATASET/preprocessed" "$PROCESSED_COMPAT_PATH"
+elif [[ ! -d "$PROCESSED_COMPAT_PATH" ]]; then
+  echo "ERROR: compatibility path exists but is not a directory: $PROCESSED_COMPAT_PATH"
+  exit 1
+fi
 
 test -f "$PREPROCESSED_DIR/train_qa_pairs_kqt.json"
 test -f "$PREPROCESSED_DIR/test_qa_pairs_kqt.txt"

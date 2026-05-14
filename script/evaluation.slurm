@@ -13,19 +13,20 @@
 #SBATCH --nodes=1
 #
 ### Optional: Specify node to execute the job ###
-### Remove 1st # at next line for the option to take effect ###
 #SBATCH --nodelist=TC2N07
 #
 ### Specify Time Limit, format: <min> or <min>:<sec> or <hr>:<min>:<sec> or <days>-<hr>:<min>:<sec> or <days>-<hr> ###
 #SBATCH --time=06:00:00
 #
 #SBATCH --job-name=llm4poi_eval
-#SBATCH --output=%x-%j.out
-#SBATCH --error=%x-%j.err
+#SBATCH --output=log/%x-%j.out
+#SBATCH --error=log/%x-%j.err
 
 set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-$SLURM_SUBMIT_DIR}"
+CONDA_MODULE="${CONDA_MODULE:-anaconda/25.5.1}"
+CUDA_MODULE="${CUDA_MODULE:-cuda/12.8.0}"
 DATASETS=(${DATASETS:-nyc tky ca})
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -z "${DATASET:-}" ]]; then
   if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#DATASETS[@]} )); then
@@ -47,6 +48,28 @@ if [[ "$DATASET" != "nyc" && "$DATASET" != "tky" && "$DATASET" != "ca" ]]; then
   exit 1
 fi
 
+load_hpc_modules() {
+  if ! command -v module >/dev/null 2>&1; then
+    if [[ -f /etc/profile.d/modules.sh ]]; then
+      # shellcheck disable=SC1091
+      source /etc/profile.d/modules.sh
+    elif [[ -f /usr/share/Modules/init/bash ]]; then
+      # shellcheck disable=SC1091
+      source /usr/share/Modules/init/bash
+    fi
+  fi
+  if ! command -v module >/dev/null 2>&1; then
+    echo "ERROR: environment modules are not available in this Slurm shell."
+    exit 1
+  fi
+  module load "$CONDA_MODULE"
+  module load "$CUDA_MODULE"
+  if ! command -v conda >/dev/null 2>&1; then
+    echo "ERROR: conda not found after loading module $CONDA_MODULE"
+    exit 1
+  fi
+}
+
 if [[ ! -f "$BASE_MODEL_DIR/config.json" ]]; then
   echo "ERROR: base model not found: $BASE_MODEL_DIR"
   exit 1
@@ -65,6 +88,7 @@ if [[ ! -f "$DATA_PATH/$TEST_FILE" ]]; then
   exit 1
 fi
 
+load_hpc_modules
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
 
@@ -80,6 +104,8 @@ echo "[evaluation] ADAPTER_DIR=$ADAPTER_DIR"
 echo "[evaluation] DATA_PATH=$DATA_PATH"
 echo "[evaluation] TEST_FILE=$TEST_FILE"
 echo "[evaluation] RESULT_DIR=$RESULT_DIR"
+echo "[evaluation] CONDA_MODULE=$CONDA_MODULE"
+echo "[evaluation] CUDA_MODULE=$CUDA_MODULE"
 
 python eval_next_poi.py \
   --model_path "$BASE_MODEL_DIR" \
