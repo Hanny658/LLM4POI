@@ -1,6 +1,10 @@
 import torch
 from torch import Tensor
-from torch_sparse.tensor import SparseTensor
+try:
+    from torch_sparse.tensor import SparseTensor
+except ModuleNotFoundError:
+    from typing import Any
+    SparseTensor = Any
 from math import radians, cos, sin, asin, sqrt, exp
 import pandas as pd
 from bisect import bisect

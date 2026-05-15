@@ -11,11 +11,25 @@ from utils.sys_util import (
     set_logger,
     seed_torch
 )
-from utils.pipeline_util import (
-    save_model,
-    count_parameters,
-    test_step
-)
+try:
+    from utils.pipeline_util import (
+        save_model,
+        count_parameters,
+        test_step
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "metric":
+        raise
+
+    def _missing_metric_dependency(*args, **kwargs):
+        raise ModuleNotFoundError(
+            "Training/evaluation pipeline utilities require the optional "
+            "local metric module, which is not included in this repository."
+        ) from exc
+
+    save_model = _missing_metric_dependency
+    count_parameters = _missing_metric_dependency
+    test_step = _missing_metric_dependency
 from utils.conf_util import DictToObject, Cfg
 
 __all__ = [

@@ -4,12 +4,6 @@ import logging
 import numpy as np
 from tqdm import tqdm
 import os.path as osp
-from metric import (
-    recall,
-    ndcg,
-    map_k,
-    mrr
-)
 
 
 def save_model(model, optimizer, save_variable_list, run_args, argparse_dict):
@@ -36,6 +30,16 @@ def count_parameters(model):
 
 
 def test_step(model, data, ks=(1, 5, 10, 20)):
+    try:
+        from metric import recall, ndcg, map_k, mrr
+    except ModuleNotFoundError as exc:
+        if exc.name != "metric":
+            raise
+        raise ModuleNotFoundError(
+            "test_step requires the local metric module, which is not included "
+            "in this repository."
+        ) from exc
+
     model.eval()
     loss_list = []
     pred_list = []

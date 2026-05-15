@@ -134,7 +134,10 @@ if ! python -c "import torch, transformers, peft, pandas" >/dev/null 2>&1; then
   exit 1
 fi
 
-python -m pip install --upgrade packaging wheel ninja
+python -m pip install --upgrade packaging wheel ninja cmake lit
+if ! python -c "import tensorboard" >/dev/null 2>&1; then
+  python -m pip install tensorboard
+fi
 if [[ "$INSTALL_FLASH_ATTN" == "1" ]]; then
   export MAX_JOBS="${MAX_JOBS:-${SLURM_CPUS_PER_TASK:-1}}"
   if ! python -c "import flash_attn" >/dev/null 2>&1; then
@@ -230,7 +233,7 @@ fi
 echo "[env_prepare] Running LLM4POI preprocessing pipeline"
 (
   cd "$PROJECT_ROOT/preprocessing"
-  python run.py -f "conf/best_conf/${DATASET}.yml"
+  python run.py -f "best_conf/${DATASET}.yml"
   python traj_qk.py -dataset_name "$DATASET"
 )
 
