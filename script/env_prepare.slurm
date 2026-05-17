@@ -243,6 +243,36 @@ python "$PROJECT_ROOT/traj_sim.py" \
   --data_path "$PREPROCESSED_DIR" \
   --output_dir "$SIM_OUTPUT_DIR"
 
+python - "$PREPROCESSED_DIR" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+data_dir = Path(sys.argv[1])
+
+def load_json(name):
+    with (data_dir / name).open() as f:
+        return json.load(f)
+
+for split in ("train", "test"):
+    kq = load_json(f"{split}_kq_pairs.json")
+    top = load_json(f"{split}_key_top200.json")
+    total = len(kq)
+    covered = len(top)
+    ratio = covered / total if total else 0.0
+    print(f"[env_prepare] {split} key-query similarity coverage: {covered}/{total} ({ratio:.2%})")
+    if total and covered == 0:
+        raise SystemExit(
+            f"ERROR: no {split} key-query similarities were generated. "
+            "Check earlier CUDA OOM errors in traj_sim.py."
+        )
+    if total and ratio < 0.8:
+        print(
+            f"WARNING: low {split} key-query similarity coverage. "
+            "Prompts without top200 similar trajectories will fall back to same-user history."
+        )
+PY
+
 (
   cd "$PROJECT_ROOT/preprocessing"
   python to_nextpoi_kqt.py -dataset_name "$DATASET"
