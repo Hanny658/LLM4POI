@@ -37,6 +37,10 @@ CUDA_MODULE="${CUDA_MODULE:-cuda/12.8.0}"
 FLASH_ATTN_VERSION="${FLASH_ATTN_VERSION:-2.3.2}"
 INSTALL_FLASH_ATTN="${INSTALL_FLASH_ATTN:-1}"
 RECREATE_ENV="${RECREATE_ENV:-0}"
+FORCE_PREPROCESS="${FORCE_PREPROCESS:-0}"
+FORCE_TRAJ_QK="${FORCE_TRAJ_QK:-0}"
+FORCE_TRAJ_SIM="${FORCE_TRAJ_SIM:-0}"
+FORCE_QA="${FORCE_QA:-0}"
 DATASETS=(${DATASETS:-nyc tky ca})
 if [[ -n "${SLURM_ARRAY_TASK_ID:-}" && -z "${DATASET:-}" ]]; then
   if (( SLURM_ARRAY_TASK_ID < 0 || SLURM_ARRAY_TASK_ID >= ${#DATASETS[@]} )); then
@@ -65,6 +69,14 @@ require_cmd() {
     echo "ERROR: command not found: $1"
     exit 1
   fi
+}
+
+files_exist() {
+  local path
+  for path in "$@"; do
+    [[ -s "$path" ]] || return 1
+  done
+  return 0
 }
 
 load_hpc_modules() {
@@ -230,18 +242,43 @@ if [[ "$DATASET" == "ca" ]]; then
   fi
 fi
 
-echo "[env_prepare] Running LLM4POI preprocessing pipeline"
-(
-  cd "$PROJECT_ROOT/preprocessing"
-  python run.py -f "best_conf/${DATASET}.yml"
-  python traj_qk.py -dataset_name "$DATASET"
-)
+echo "[env_prepare] Running/resuming LLM4POI preprocessing pipeline"
+if [[ "$FORCE_PREPROCESS" == "1" ]] || ! files_exist \
+  "$PREPROCESSED_DIR/train_sample.csv" \
+  "$PREPROCESSED_DIR/test_sample_with_traj.csv"; then
+  echo "[env_prepare] Stage preprocess: running"
+  (
+    cd "$PROJECT_ROOT/preprocessing"
+    python run.py -f "best_conf/${DATASET}.yml"
+  )
+else
+  echo "[env_prepare] Stage preprocess: skipped, outputs already exist"
+fi
 
-python "$PROJECT_ROOT/traj_sim.py" \
-  --dataset_name "$DATASET" \
-  --base_model "$BASE_MODEL_DIR" \
-  --data_path "$PREPROCESSED_DIR" \
-  --output_dir "$SIM_OUTPUT_DIR"
+if [[ "$FORCE_TRAJ_QK" == "1" ]] || ! files_exist \
+  "$PREPROCESSED_DIR/train_kq_pairs.json" \
+  "$PREPROCESSED_DIR/test_kq_pairs.json"; then
+  echo "[env_prepare] Stage traj_qk: running"
+  (
+    cd "$PROJECT_ROOT/preprocessing"
+    python traj_qk.py -dataset_name "$DATASET"
+  )
+else
+  echo "[env_prepare] Stage traj_qk: skipped, outputs already exist"
+fi
+
+if [[ "$FORCE_TRAJ_SIM" == "1" ]] || ! files_exist \
+  "$PREPROCESSED_DIR/train_key_top200.json" \
+  "$PREPROCESSED_DIR/test_key_top200.json"; then
+  echo "[env_prepare] Stage traj_sim: running"
+  python "$PROJECT_ROOT/traj_sim.py" \
+    --dataset_name "$DATASET" \
+    --base_model "$BASE_MODEL_DIR" \
+    --data_path "$PREPROCESSED_DIR" \
+    --output_dir "$SIM_OUTPUT_DIR"
+else
+  echo "[env_prepare] Stage traj_sim: skipped, outputs already exist"
+fi
 
 python - "$PREPROCESSED_DIR" <<'PY'
 import json
@@ -273,10 +310,17 @@ for split in ("train", "test"):
         )
 PY
 
-(
-  cd "$PROJECT_ROOT/preprocessing"
-  python to_nextpoi_kqt.py -dataset_name "$DATASET"
-)
+if [[ "$FORCE_QA" == "1" ]] || ! files_exist \
+  "$PREPROCESSED_DIR/train_qa_pairs_kqt.json" \
+  "$PREPROCESSED_DIR/test_qa_pairs_kqt.txt"; then
+  echo "[env_prepare] Stage to_nextpoi_kqt: running"
+  (
+    cd "$PROJECT_ROOT/preprocessing"
+    python to_nextpoi_kqt.py -dataset_name "$DATASET"
+  )
+else
+  echo "[env_prepare] Stage to_nextpoi_kqt: skipped, outputs already exist"
+fi
 
 # Compatibility path for scripts/readme using datasets/processed/<dataset>/...
 mkdir -p "$PROJECT_ROOT/datasets/processed"

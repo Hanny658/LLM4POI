@@ -6,25 +6,71 @@ import pandas as pd
 import json
 import sys
 import math
+import os
 from tqdm import tqdm
 
 
+def normalize_traj_id(value):
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
+def select_retrieved_history(source_data, ranked_traj_ids, limit):
+    if limit <= 0:
+        return source_data.iloc[0:0].copy()
+
+    chunks = []
+    seen = set()
+    for traj_id in ranked_traj_ids:
+        traj_id = normalize_traj_id(traj_id)
+        if traj_id in seen:
+            continue
+        seen.add(traj_id)
+        chunk = source_data[source_data['_traj_id_norm'] == traj_id]
+        if chunk.empty:
+            continue
+        chunks.append(chunk.sort_values('UTCTimeOffsetEpoch'))
+        if sum(len(c) for c in chunks) >= limit:
+            break
+
+    if not chunks:
+        return source_data.iloc[0:0].copy()
+    return pd.concat(chunks, ignore_index=True).head(limit)
+
+
+def select_same_user_history(source_data, user, start_time, limit):
+    if limit <= 0:
+        return source_data.iloc[0:0].copy()
+    return source_data[
+        (source_data['UserId'] == user) &
+        (source_data['UTCTimeOffsetEpoch'] < start_time)
+    ].sort_values('UTCTimeOffsetEpoch').tail(limit)
 
 
 def generate_qa_pairs(main_data, kqt=None, historical_data=None, args=None):
     # Sort the dataframe by UserId, pseudo_session_trajectory_id, and timestamp
     main_data = main_data.sort_values(by=['UserId', 'pseudo_session_trajectory_id', 'UTCTimeOffsetEpoch'])
+    main_data = main_data.copy()
+    main_data['_traj_id_norm'] = main_data['pseudo_session_trajectory_id'].apply(normalize_traj_id)
+    if historical_data is not None:
+        historical_data = historical_data.copy()
+        historical_data['_traj_id_norm'] = historical_data['pseudo_session_trajectory_id'].apply(normalize_traj_id)
 
     # List to store the QA pairs
     qa_pairs = []
+    retrieval_available = 0
+    retrieval_hit = 0
+    fallback_used = 0
 
     # Iterate over each user
     for user in tqdm(main_data['UserId'].unique()):
         user_data = main_data[main_data['UserId'] == user]
 
         # Iterate over each unique trajectory for the user based on 'pseudo_session_trajectory_id'
-        for traj_id in user_data['pseudo_session_trajectory_id'].unique():
-            user_trajectory_data = user_data[user_data['pseudo_session_trajectory_id'] == traj_id]
+        for traj_id in user_data['_traj_id_norm'].unique():
+            user_trajectory_data = user_data[user_data['_traj_id_norm'] == traj_id]
 
             # Get the start time of the current trajectory
             start_time_of_current_traj = user_trajectory_data['UTCTimeOffsetEpoch'].min()
@@ -32,26 +78,36 @@ def generate_qa_pairs(main_data, kqt=None, historical_data=None, args=None):
             num_traj = user_trajectory_data.shape[0]
             top200 = []
             if kqt is not None:
-                top200 = kqt.get(str(traj_id), kqt.get(traj_id, []))
+                top200 = kqt.get(normalize_traj_id(traj_id), kqt.get(traj_id, []))
             if top200:
-                top200 = [str(item) for item in top200]
+                retrieval_available += 1
+                top200 = [normalize_traj_id(item) for item in top200]
                 # Fetch historical data before the start of the current trajectory
-                if historical_data is not None:
-                    user_historical_data = historical_data[
-                        historical_data['pseudo_session_trajectory_id'].astype(str).isin(top200)
-                    ].tail(max(0, 200 - num_traj))
+                history_source = historical_data if historical_data is not None else main_data
+                user_historical_data = select_retrieved_history(
+                    history_source,
+                    top200,
+                    max(0, 200 - num_traj),
+                )
+                if not user_historical_data.empty:
+                    retrieval_hit += 1
                 else:
-                    user_historical_data = main_data[
-                        main_data['pseudo_session_trajectory_id'].astype(str).isin(top200)
-                    ].tail(max(0, 200 - num_traj))
+                    fallback_used += 1
+                    user_historical_data = select_same_user_history(
+                        history_source,
+                        user,
+                        start_time_of_current_traj,
+                        max(0, 600 - num_traj),
+                    )
             else:
-                if historical_data is not None:
-                    user_historical_data = historical_data[(historical_data['UserId'] == user) & (
-                            historical_data['UTCTimeOffsetEpoch'] < start_time_of_current_traj)].tail(max(0, 600 - num_traj))
-                else:
-                    user_historical_data = user_data[
-                        (user_data['UTCTimeOffsetEpoch'] < start_time_of_current_traj)].tail(
-                        max(0, 600 - num_traj))
+                fallback_used += 1
+                history_source = historical_data if historical_data is not None else user_data
+                user_historical_data = select_same_user_history(
+                    history_source,
+                    user,
+                    start_time_of_current_traj,
+                    max(0, 600 - num_traj),
+                )
             user_trajectory_data.reset_index(drop=True, inplace=True)
             # Create the question based on the current trajectory (excluding the last entry) and historical data
             question_parts = [f"<question>: The following data is a trajectory of user {user}:"]
@@ -82,6 +138,13 @@ def generate_qa_pairs(main_data, kqt=None, historical_data=None, args=None):
 
             # Append the question-answer pair to the list
             qa_pairs.append((question, answer))
+    print(
+        "similar_traj_stats: "
+        f"retrieval_available={retrieval_available}, "
+        f"retrieval_hit={retrieval_hit}, "
+        f"fallback_used={fallback_used}, "
+        f"qa_pairs={len(qa_pairs)}"
+    )
     return qa_pairs
 
 def _make_r_io_base(f, mode: str):
@@ -123,14 +186,20 @@ def main():
 
     # Save the train QA pairs in JSON format
     qa_dict_train = [{"question": q, "answer": a} for q, a in qa_pairs_train]
-    with open(f'{path}train_qa_pairs_kqt.json', 'w') as json_file:
+    train_out = f'{path}train_qa_pairs_kqt.json'
+    train_tmp = train_out + '.tmp'
+    with open(train_tmp, 'w') as json_file:
         json.dump(qa_dict_train, json_file)
+    os.replace(train_tmp, train_out)
 
 
     # Save the test QA pairs in TXT format
-    with open(f'{path}test_qa_pairs_kqt.txt', 'w') as txt_file:
+    test_out = f'{path}test_qa_pairs_kqt.txt'
+    test_tmp = test_out + '.tmp'
+    with open(test_tmp, 'w') as txt_file:
         for q, a in qa_pairs_test:
             txt_file.write(q + a + '\n')
+    os.replace(test_tmp, test_out)
 
 
 if __name__ == "__main__":

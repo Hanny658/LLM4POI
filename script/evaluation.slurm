@@ -75,7 +75,15 @@ if [[ ! -f "$BASE_MODEL_DIR/config.json" ]]; then
   exit 1
 fi
 if [[ -z "$ADAPTER_DIR" ]]; then
-  ADAPTER_DIR="$(ls -dt "$PROJECT_ROOT"/outputs/llm4poi_"${DATASET}"_* 2>/dev/null | head -n 1 || true)"
+  shopt -s nullglob
+  ADAPTER_CANDIDATES=(
+    "$PROJECT_ROOT"/outputs/llm4poi_"${DATASET}"
+    "$PROJECT_ROOT"/outputs/llm4poi_"${DATASET}"_*
+  )
+  shopt -u nullglob
+  if (( ${#ADAPTER_CANDIDATES[@]} > 0 )); then
+    ADAPTER_DIR="$(ls -dt "${ADAPTER_CANDIDATES[@]}" 2>/dev/null | head -n 1 || true)"
+  fi
 fi
 if [[ ! -d "$ADAPTER_DIR" ]]; then
   echo "ERROR: adapter dir not found: $ADAPTER_DIR"
