@@ -111,6 +111,10 @@ class TrainingArguments(transformers.TrainingArguments):
         default="embed,norm",
         metadata={"help": "Additional trainable parameters except LoRA weights, if low rank training."},
     )
+    resume_from_checkpoint: Optional[str] = field(
+        default=None,
+        metadata={"help": "Checkpoint path to resume training from."},
+    )
 
 
 def smart_tokenizer_and_embedding_resize(
@@ -186,8 +190,17 @@ class SupervisedDataset(Dataset):
         logging.warning("Formatting inputs...")
 
         if '<question>:' in list_data_dict[0]["question"]:
-            sources = ['<question>:' + example["question"] for example in list_data_dict]
-            targets = ['<answer>:' + f"{example['answer']}{tokenizer.eos_token}" for example in list_data_dict]
+            sources = [
+                example["question"] if example["question"].lstrip().startswith("<question>:")
+                else '<question>:' + example["question"]
+                for example in list_data_dict
+            ]
+            targets = [
+                example["answer"] + tokenizer.eos_token
+                if example["answer"].lstrip().startswith("<answer>:")
+                else '<answer>:' + f"{example['answer']}{tokenizer.eos_token}"
+                for example in list_data_dict
+            ]
         else:
             sources = [example["question"] for example in list_data_dict]
             targets = [f"{example['answer']}{tokenizer.eos_token}" for example in list_data_dict]
@@ -343,7 +356,12 @@ def train():
     model.gradient_checkpointing_enable()  # enable gradient checkpointing
 
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
-    trainer.train(resume_from_checkpoint=False)
+    resume_checkpoint = training_args.resume_from_checkpoint
+    if resume_checkpoint == "":
+        resume_checkpoint = None
+    if resume_checkpoint:
+        print(f"Resuming training from checkpoint: {resume_checkpoint}")
+    trainer.train(resume_from_checkpoint=resume_checkpoint)
     trainer.save_state()
     trainer.save_model(output_dir=training_args.output_dir)
 
