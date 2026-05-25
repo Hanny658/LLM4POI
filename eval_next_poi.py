@@ -294,16 +294,25 @@ def main(args):
     device = 'cuda'
     # Iterate over each line and ask the LLM
     correct_list = []
+    skipped_too_long = 0
+    evaluated = 0
     for index, line in tqdm(enumerate(lines), desc="Processing lines", total=len(lines)):
         prompt1, gt = line.split("<answer>:")
-        tmp1, tmp2 = prompt1.split('Which POI id will user ')
-        time = tmp1[-24:]
-        user_id = tmp2.split(' visit')[0]
-        prompt = prompt1.replace('<question>:', '<question>:') + '<answer>:' + f'{time}, user {user_id} will visit POI id '
+        answer_prefix_match = re.search(r"^(\s*.*?POI id )\d+\.", gt)
+        if answer_prefix_match:
+            answer_prefix = answer_prefix_match.group(1)
+        else:
+            tmp1, tmp2 = prompt1.split('Which POI id will user ')
+            time = tmp1[-24:]
+            user_id = tmp2.split(' visit')[0]
+            answer_prefix = f'{time}, user {user_id} will visit POI id '
+        prompt = prompt1.replace('<question>:', '<question>:') + '<answer>:' + answer_prefix
         # prompt1, prompt2, gt = line.split("<answer>:")
         # prompt = prompt1.replace('<question>:', '<user>:\n') + "\n<assistant>:\n"
         if len(tokenizer.tokenize(prompt)) >= 32768:
+            skipped_too_long += 1
             continue
+        evaluated += 1
         prompt = tokenizer(prompt, return_tensors="pt").to(device)
 
         outputs = model.generate(**prompt, generation_config=generation_config)
@@ -340,6 +349,10 @@ def main(args):
         # sys.exit()
 
     print(f'ACC@1:{correct_predictions_1 / len(lines)}')
+    if evaluated:
+        print(f'ACC@1_evaluated:{correct_predictions_1 / evaluated}')
+    print(f'evaluated:{evaluated}/{len(lines)}')
+    print(f'skipped_too_long:{skipped_too_long}')
     # print(f'ACC@5:{correct_predictions_5 / len(lines)}')
     # print(f'ACC@10:{correct_predictions_10 / len(lines)}')
     print(f'correct_index:{correct_list}')
